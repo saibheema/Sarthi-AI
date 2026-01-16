@@ -1,0 +1,8 @@
+{
+  "name": "Sarthi AI",
+  "description": "Your intelligent academic guide and mentor for trilingual learning in English, Hindi, and Telugu.",
+  "requestFramePermissions": [
+    "camera",
+    "microphone"
+  ]
+}
