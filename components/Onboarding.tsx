@@ -15,10 +15,20 @@ const Onboarding: React.FC<Props> = ({ onComplete }) => {
     e.preventDefault();
     if (!email || (isNew && !name)) return;
     
+    // Fix: Remove 'lastSeen' (which does not exist in UserProfile) and add required properties 
+    // 'email', 'role', and 'analytics' to match the interface definition in types.ts.
     onComplete({
       id: email.toLowerCase().trim(),
+      email: email.toLowerCase().trim(),
       name: name.trim() || 'Student',
-      lastSeen: Date.now()
+      role: 'student',
+      analytics: {
+        totalSessions: 1,
+        totalMessages: 0,
+        quizScores: [],
+        commonTopics: [],
+        languagePreference: {}
+      }
     });
   };
 

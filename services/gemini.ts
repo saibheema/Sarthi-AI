@@ -1,5 +1,5 @@
 
-import { GoogleGenAI } from "@google/genai";
+import { GoogleGenAI, Type } from "@google/genai";
 import { BotSettings, Message, UserProfile, RagEntry } from "../types";
 
 export const geminiService = {
@@ -12,52 +12,27 @@ export const geminiService = {
     contextSummary?: string
   ) {
     const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
-    
     const botIdentity = user.customBotName || settings.name;
-    const botPersona = user.currentPersonality || settings.personality;
 
+    // Optimized context building
     const systemInstruction = `
-      You are "${botIdentity}", a friendly and brilliant academic mentor for students in India (CBSE, Andhra Pradesh, and Telangana boards) from Class 1 to Class 12.
+      You are "SARATHI the charioteer", a stateful academic mentor.
       
-      CORE RULES:
-      1. ALL SUBJECTS: You support ALL academic subjects (Mathematics, Science, Social Studies, Languages, etc.). Do not limit yourself or mention you only do specific subjects.
-      2. BE FRIENDLY: Your tone should be supportive, like a mentor or a knowledgeable friend. 
-      3. NO INTRODUCTORY FLUFF: Do not say "Namaste", "Hello", or "I specialize in...". Start immediately with the solution or brainstorming.
-      
-      A2UI VISUAL PROTOCOL (Mandatory for Solutions):
-      For any academic problem or concept explanation, use these structured blocks so the UI can render them as visual cards:
+      LONG-TERM MEMORY OF STUDENT:
+      ${user.learnedTraits || "No traits learned yet. Observe and adapt to this student."}
 
-      [PROBLEM_START]
-      The specific question or topic we are addressing.
-      [PROBLEM_END]
+      SESSION CONTEXT (PREVIOUS CHATS):
+      ${contextSummary || "New session."}
 
-      [STEP_1: TITLE]
-      A clear, friendly explanation of the first step.
-      [FORMULA] key-equation-or-concept-here [FORMULA_END]
-      [STEP_END]
-
-      [STEP_2: TITLE]
-      ... (repeat for all steps)
-      [STEP_END]
-
-      [CONCLUSION_START]
-      The final takeaway or answer in bold.
-      [CONCLUSION_END]
-
-      Formatting for non-math subjects:
-      Use [STEP] blocks to break down history events, grammar rules, or scientific concepts into visual logical parts.
-
-      BEHAVIOR:
-      - Trilingual: Respond in the language used by the student (English, Hindi, or Telugu).
-      - Strict Scope: Ignore non-student/non-academic chatter.
-      - Image Analysis: If a student uploads a textbook page, identify the problem and solve it using A2UI.
-
-      CONTEXT:
-      - Memory/RAG: ${contextSummary || "New interaction."}
-      - Student Info: ${user.name}, Grade ${user.schoolContext?.currentGrade || 'N/A'}.
+      STRICT RULES:
+      - Answer academic queries for Class 1-12 ONLY.
+      - Return JSON error { "error": { "code": 403, "message": "..." } } for non-academic content.
+      - Use [PROBLEM_START/END], [STEP_1...], and [VISUAL: ...] tags as previously defined.
+      - If user asks your name: "I am SARATHI, your charioteer."
+      - Act as a personal friend/mentor who remembers past struggles and wins.
     `;
 
-    const contents: any[] = history.map(h => ({
+    const contents: any[] = history.slice(-8).map(h => ({
       role: h.role,
       parts: [{ text: h.text }]
     }));
@@ -72,51 +47,83 @@ export const geminiService = {
     contents.push({ role: "user", parts: currentParts });
 
     const response = await ai.models.generateContent({
-      model: "gemini-3-pro-preview",
+      model: "gemini-3-flash-preview",
       contents,
       config: {
         systemInstruction,
-        temperature: 0.7,
+        temperature: 0.6,
       }
     });
 
     return response.text;
   },
 
-  async researchSubject(subject: string, board: string): Promise<Partial<RagEntry>> {
+  // Learns about the user from the current conversation
+  async learnFromUser(messages: Message[], currentTraits: string): Promise<string> {
     const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
-    const prompt = `Provide a detailed curriculum breakdown and common solved problems for ${subject} in the ${board} board (Class 1-12). Include key definitions and step-by-step examples.`;
-
+    const content = messages.map(m => `${m.role}: ${m.text}`).join('\n');
+    
     const response = await ai.models.generateContent({
-      model: "gemini-3-pro-preview",
-      contents: prompt,
-      config: {
-        tools: [{ googleSearch: {} }]
-      }
+      model: "gemini-3-flash-preview",
+      contents: `Based on this conversation, update the student's learning profile. 
+      Identify their interests, strengths, and areas where they need more help.
+      Current Profile: ${currentTraits}
+      
+      Conversation:
+      ${content}
+      
+      Provide a concise, updated bulleted profile of the student.`,
     });
 
-    const urls = response.candidates?.[0]?.groundingMetadata?.groundingChunks
-      ?.map((chunk: any) => chunk.web?.uri)
-      .filter(Boolean) || [];
+    return response.text || currentTraits;
+  },
 
+  // Generates a lean summary of the session
+  async summarizeSession(messages: Message[]): Promise<string> {
+    const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
+    const content = messages.map(m => `${m.role}: ${m.text}`).join('\n');
+
+    const response = await ai.models.generateContent({
+      model: "gemini-3-flash-preview",
+      contents: `Summarize this academic session in 3-4 sentences. Focus on the core concepts discussed and the student's progress.
+      
+      Chat:
+      ${content}`
+    });
+
+    return response.text || "Summary unavailable.";
+  },
+
+  async generateImage(prompt: string): Promise<string> {
+    const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
+    const response = await ai.models.generateContent({
+      model: 'gemini-2.5-flash-image',
+      contents: { 
+        parts: [{ 
+          text: `Educational diagram for: ${prompt}. White background, clear labels, academic style.` 
+        }] 
+      },
+      config: { imageConfig: { aspectRatio: "1:1" } }
+    });
+
+    for (const part of response.candidates[0].content.parts) {
+      if (part.inlineData) return `data:image/png;base64,${part.inlineData.data}`;
+    }
+    throw new Error("No image generated");
+  },
+
+  async researchSubject(subject: string, board: string): Promise<Partial<RagEntry>> {
+    const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
+    const response = await ai.models.generateContent({
+      model: "gemini-3-flash-preview",
+      contents: `Class 1-12 curriculum for ${subject} (${board}).`,
+      config: { tools: [{ googleSearch: {} }] }
+    });
     return {
       subject,
       board: board as any,
       content: response.text,
-      sourceUrls: Array.from(new Set(urls))
+      sourceUrls: response.candidates?.[0]?.groundingMetadata?.groundingChunks?.map((c: any) => c.web?.uri).filter(Boolean) || []
     };
-  },
-
-  async summarize(messages: Message[]): Promise<string> {
-    const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
-    const textToSummarize = messages.map(m => `${m.role}: ${m.text}`).join("\n");
-    
-    const response = await ai.models.generateContent({
-      model: "gemini-3-flash-preview",
-      contents: `Summarize this academic chat for quick context retrieval in future sessions:\n\n${textToSummarize}`,
-      config: { temperature: 0.3 }
-    });
-    
-    return response.text || "Context summary unavailable.";
   }
 };

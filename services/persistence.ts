@@ -76,6 +76,10 @@ export const persistenceService = {
   addSummary: (sessionId: string, summary: string) => {
     const session = persistenceService.getSession(sessionId);
     if (session) {
+      // Initialize summaries array if missing to fix property access error on type ChatSession
+      if (!session.summaries) {
+        session.summaries = [];
+      }
       session.summaries.push(summary);
       persistenceService.saveSession(session);
     }
@@ -90,7 +94,8 @@ export const persistenceService = {
       context += `GLOBAL SYLLABUS KNOWLEDGE:\n${globalKnowledge}\n\n`;
     }
 
-    if (session && session.summaries.length > 0) {
+    // Check if summaries exists and has content before joining to fix property access errors
+    if (session && session.summaries && session.summaries.length > 0) {
       context += `CHAT HISTORY SUMMARY: ${session.summaries.join(" | ")}`;
     } else if (session) {
       const historySnippet = session.messages.slice(-3).map(m => `${m.role}: ${m.text}`).join("\n");

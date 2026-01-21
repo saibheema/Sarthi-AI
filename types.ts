@@ -6,12 +6,13 @@ export interface UserProfile {
   role: 'student' | 'admin';
   customBotName?: string;
   currentPersonality?: 'friend' | 'mentor' | 'teacher';
-  schoolId?: string; // Optional for multi-tenant integration
+  schoolId?: string;
   schoolContext?: {
     currentGrade?: string;
     subjects?: string[];
     recentPerformance?: string;
   };
+  learnedTraits?: string; // Long-term "memory" of the student's behavior
   analytics: {
     totalSessions: number;
     totalMessages: number;
@@ -25,7 +26,7 @@ export interface RagEntry {
   id: string;
   subject: string;
   board: 'CBSE' | 'AP' | 'Telangana';
-  content: string; // Syllabus / Solutions / Context
+  content: string;
   sourceUrls: string[];
   timestamp: number;
 }
@@ -44,7 +45,9 @@ export interface ChatSession {
   userId: string;
   botName: string;
   messages: Message[];
-  summaries: string[]; // Stores periodic summaries (every 50 messages)
+  summary?: string; // Condensed version of this specific session
+  // Added summaries array to fix TypeScript errors in persistence service
+  summaries?: string[];
   lastUpdated: number;
   schoolId?: string;
 }
